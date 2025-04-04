@@ -20,9 +20,11 @@ db.exec(`
 
 // Загрузка таблиц для PostgreSQL и MySQL
 ipcMain.handle('load-tables', async (event, conn, database) => {
-    if (conn.type === 'postgres') {
+    console.log('Загрузка таблиц для базы:', database);
+
+    if (conn.type === 'postgres' || conn.type === 'postgresql' || conn.type === 'PostgreSQL') {
         const client = new Client({
-            host: conn.host,
+            host: conn.host === 'localhost' ? '127.0.0.1' : conn.host,
             port: conn.port,
             user: conn.username,
             password: conn.password,
@@ -31,19 +33,37 @@ ipcMain.handle('load-tables', async (event, conn, database) => {
 
         try {
             await client.connect();
-            const res = await client.query(`
-                SELECT table_name FROM information_schema.tables
-                WHERE table_schema = 'public'
+
+            // Получаем список схем
+            const schemaRes = await client.query(`
+                SELECT schema_name
+                FROM information_schema.schemata
+                WHERE schema_name NOT IN ('information_schema', 'pg_catalog');
             `);
+            console.log('Схемы PostgreSQL:', schemaRes.rows); // Логируем схемы для проверки
+
+            // Для каждой схемы получаем список таблиц
+            const tablesBySchema = {};
+            for (const schema of schemaRes.rows) {
+                const res = await client.query(`
+                    SELECT table_name 
+                    FROM information_schema.tables 
+                    WHERE table_schema = $1
+                `, [schema.schema_name]);
+
+                tablesBySchema[schema.schema_name] = res.rows.map((row) => row.table_name);
+            }
+
             await client.end();
-            return res.rows.map((row) => row.table_name);
+            console.log('Таблицы PostgreSQL по схемам:', tablesBySchema); // Логируем таблицы по схемам
+            return tablesBySchema; // Возвращаем объект схем с таблицами
         } catch (err) {
-            console.error('Ошибка при получении таблиц:', err.message);
-            throw new Error('Ошибка при подключении к базе данных: ' + err.message);
+            console.error('Ошибка при получении таблиц PostgreSQL:', err.message);
+            throw new Error('Ошибка при подключении к базе данных PostgreSQL: ' + err.message);
         }
-    } else if (conn.type === 'mysql') {
+    } else if (conn.type === 'mysql' || conn.type === 'MySQL') {
         const connMysql = await mysql.createConnection({
-            host: conn.host,
+            host: conn.host === 'localhost' ? '127.0.0.1' : conn.host,
             port: conn.port,
             user: conn.username,
             password: conn.password,
@@ -53,6 +73,7 @@ ipcMain.handle('load-tables', async (event, conn, database) => {
         try {
             const [rows] = await connMysql.query('SHOW TABLES');
             await connMysql.end();
+            console.log('Таблицы MySQL:', rows); // Добавляем лог для проверок
             return rows.map((row) => Object.values(row)[0]); // Возвращаем названия таблиц
         } catch (err) {
             console.error('Ошибка при получении таблиц MySQL:', err.message);
@@ -63,44 +84,103 @@ ipcMain.handle('load-tables', async (event, conn, database) => {
     throw new Error('Неподдерживаемый тип базы данных');
 });
 
-// Загрузка баз данных для PostgreSQL и MySQL
-ipcMain.handle('load-databases', async (event, conn) => {
-    if (conn.type === 'postgres') {
+// Загрузка схем для PostgreSQL
+ipcMain.handle('load-schemas', async (event, conn, database) => {
+    console.log('Загрузка схем для базы:', database);
+
+    if (conn.type === 'postgres' || conn.type === 'postgresql' || conn.type === 'PostgreSQL') {
         const client = new Client({
-            host: conn.host,
+            host: conn.host === 'localhost' ? '127.0.0.1' : conn.host,
             port: conn.port,
             user: conn.username,
             password: conn.password,
+            database,
         });
 
         try {
             await client.connect();
-            const res = await client.query(`SELECT datname FROM pg_database WHERE datistemplate = false`);
+            const res = await client.query(`
+                SELECT schema_name FROM information_schema.schemata
+                WHERE schema_name NOT IN ('information_schema', 'pg_catalog')
+            `);
             await client.end();
-            return res.rows.map((row) => row.datname);
+            console.log('Схемы PostgreSQL:', res.rows); // Добавляем лог для проверок
+            return res.rows.map((row) => row.schema_name);
         } catch (err) {
-            console.error('Ошибка подключения к PostgreSQL:', err.message);
-            throw new Error('Ошибка подключения: ' + err.message);
+            console.error('Ошибка при получении схем PostgreSQL:', err.message);
+            throw new Error('Ошибка при подключении к базе данных PostgreSQL: ' + err.message);
         }
-    } else if (conn.type === 'mysql') {
+    } else if (conn.type === 'mysql' || conn.type === 'MySQL') {
         const connMysql = await mysql.createConnection({
-            host: conn.host,
+            host: conn.host === 'localhost' ? '127.0.0.1' : conn.host === 'localhost' ? '127.0.0.1' : conn.host,
             port: conn.port,
             user: conn.username,
             password: conn.password,
+            database,
         });
 
         try {
-            const [rows] = await connMysql.query('SHOW DATABASES');
+            const [rows] = await connMysql.query('SHOW SCHEMAS');
             await connMysql.end();
-            return rows.map((row) => row.Database);
+            console.log('Схемы MySQL:', rows); // Добавляем лог для проверок
+            return rows.map((row) => row.Schema); // Возвращаем названия схем
         } catch (err) {
-            console.error('Ошибка подключения к MySQL:', err.message);
-            throw new Error('Ошибка подключения: ' + err.message);
+            console.error('Ошибка при получении схем MySQL:', err.message);
+            throw new Error('Ошибка при подключении к базе данных MySQL: ' + err.message);
         }
     }
 
     throw new Error('Неподдерживаемый тип базы данных');
+});
+
+// Загрузка баз данных для PostgreSQL и MySQL
+ipcMain.handle('load-databases', async (event, conn) => {
+    console.log('Получено соединение:', conn);
+
+    try {
+        if (conn.type === 'postgres' || conn.type === 'postgresql' || conn.type === 'PostgreSQL') {
+            const client = new Client({
+                host: conn.host === 'localhost' ? '127.0.0.1' : conn.host,
+                port: conn.port,
+                user: conn.username,
+                password: conn.password,
+                database: conn.database || 'postgres' // <-- это исправление
+            });
+
+            try {
+                await client.connect();
+            } catch (err) {
+                console.error('Ошибка при подключении к PostgreSQL:', err);
+                throw new Error('Не удалось подключиться к базе данных PostgreSQL: ' + err.message);
+            }
+
+            const res = await client.query(`SELECT datname FROM pg_database WHERE datistemplate = false`);
+            console.log('Базы PostgreSQL:', res.rows);
+            await client.end();
+
+            return res.rows.map(row => row.datname);
+        } else if (conn.type === 'mysql' || conn.type === 'MySQL') {
+            const connDb = await mysql.createConnection({
+                host: conn.host === 'localhost' ? '127.0.0.1' : conn.host,
+                port: conn.port,
+                user: conn.username,
+                password: conn.password,
+            });
+
+            const [rows] = await connDb.query('SHOW DATABASES');
+            console.log('Базы MySQL:', rows);
+            await connDb.end();
+
+            return rows.map(row => row.Database || row.database);
+        }
+
+        return [];
+    } catch (err) {
+        console.error('Ошибка при получении баз данных:', err.message);
+        console.error('Тип ошибки:', err.name);
+        console.error('Стек вызовов:', err.stack);
+        throw new Error('Ошибка при подключении или запросе баз данных: ' + err.message);
+    }
 });
 
 // Сохранение подключения
@@ -109,7 +189,7 @@ ipcMain.handle('save-connection', (event, conn) => {
         INSERT INTO connections (name, type, host, port, username, password, default_database)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    const result = stmt.run(conn.name, conn.type, conn.host, conn.port, conn.username, conn.password, conn.default_database);
+    const result = stmt.run(conn.name, conn.type, conn.host === 'localhost' ? '127.0.0.1' : conn.host, conn.port, conn.username, conn.password, conn.default_database);
     return { id: result.lastInsertRowid, ...conn };
 });
 
@@ -169,6 +249,9 @@ function createWindow () {
     });
 
     win.loadFile('index.html');
+
+    // Открываем DevTools при запуске
+    // win.webContents.openDevTools();
 }
 
 app.whenReady().then(() => {

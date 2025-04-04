@@ -13,6 +13,13 @@ function App() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [tables, setTables] = useState([]);
     const [selectedDatabase, setSelectedDatabase] = useState(null);
+    const [schemas, setSchemas] = useState([]); // Состояние для схем
+    const [selectedSchema, setSelectedSchema] = useState(null); // Состояние для выбранной схемы
+
+    // Состояния для сворачивания/разворачивания баз данных, таблиц и схем
+    const [expandedDatabases, setExpandedDatabases] = useState({});
+    const [expandedTables, setExpandedTables] = useState({});
+    const [expandedSchemas, setExpandedSchemas] = useState({});
 
     useEffect(() => {
         console.log('Loading connections...');
@@ -44,6 +51,58 @@ function App() {
     const handleAddConnection = () => setIsModalOpen(true);
     const handleConnectionSaved = (conn) => setConnections([...connections, conn]);
 
+    // Функция для сворачивания/разворачивания базы данных
+    const toggleDatabaseExpansion = (dbName) => {
+        setExpandedDatabases((prev) => ({
+            ...prev,
+            [dbName]: !prev[dbName],
+        }));
+    };
+
+    // Функция для сворачивания/разворачивания схем
+    const toggleSchemaExpansion = (schemaName) => {
+        setExpandedSchemas((prev) => ({
+            ...prev,
+            [schemaName]: !prev[schemaName],
+        }));
+    };
+
+    // Функция для сворачивания/разворачивания таблиц
+    const toggleTableExpansion = (schemaName) => {
+        setExpandedTables((prev) => ({
+            ...prev,
+            [schemaName]: !prev[schemaName],
+        }));
+    };
+
+    // Загрузка схем для выбранной базы данных
+    const loadSchemas = async (dbName) => {
+        if (selectedConnection.type === 'mysql' || selectedConnection.type === 'MySQL') {
+            // Для MySQL схемы не загружаются, просто возвращаем
+            setSchemas([]);
+            return;
+        }
+
+        try {
+            const schemas = await window.electronAPI.invoke('load-schemas', selectedConnection, dbName);
+            console.log('Схемы:', schemas);
+            setSchemas(schemas);
+        } catch (e) {
+            alert('Ошибка при загрузке схем: ' + e.message);
+        }
+    };
+
+    // Загрузка таблиц для выбранной схемы
+    const loadTables = async (schemaName) => {
+        try {
+            const tables = await window.electronAPI.invoke('load-tables', selectedConnection, selectedDatabase, schemaName);
+            console.log('Таблицы в схеме:', tables);
+            setTables(tables);
+        } catch (e) {
+            alert('Ошибка при загрузке таблиц: ' + e.message);
+        }
+    };
+
     return (
         <div className="h-screen w-screen flex flex-col dark">
             {/* Верхняя панель */}
@@ -69,14 +128,20 @@ function App() {
                         ) : (
                             connections.map((conn) => (
                                 <li
-                                    key={conn.id}
+                                    key={`conn-${conn.id}`}
                                     onClick={async () => {
                                         try {
-                                            const dbs = await window.electron.invoke('load-databases', conn);
+                                            const dbs = await window.electronAPI.invoke('load-databases', conn);
+                                            console.log('Загруженные базы данных:', dbs);
+                                            if (!dbs || !Array.isArray(dbs)) {
+                                                alert('Не удалось загрузить базы данных. Ответ: ' + JSON.stringify(dbs));
+                                                return;
+                                            }
                                             setSelectedConnection(conn);
                                             setDatabases(dbs);
+                                            setSchemas([]); // Очистим схемы при изменении соединения
                                         } catch (e) {
-                                            alert(e.message + `(#номер строки)` || 'Ошибка при загрузке баз данных');
+                                            alert(e.message || 'Ошибка при загрузке баз данных');
                                         }
                                     }}
                                     className={`hover:bg-gray-600 p-1 rounded cursor-pointer ${selectedConnection?.id === conn.id ? 'bg-gray-700' : ''}`}
@@ -85,30 +150,49 @@ function App() {
                                 </li>
                             ))
                         )}
+
+                        {selectedConnection && databases.length === 0 && (
+                            <li key="no-databases" className="text-xs text-gray-400">Нет доступных баз данных</li>
+                        )}
+
                         {selectedConnection && databases.length > 0 && (
-                            <div className="mt-4">
-                                <div className="font-bold text-sm mb-1">Базы данных</div>
-                                <ul className="space-y-1 text-xs">
-                                    {databases.map((db) => (
+                            <>
+                                {databases.map((db) => (
+                                    <div key={`db-${db}`}>
+                                        {/* Кликабельный элемент для сворачивания/разворачивания базы */}
                                         <li
-                                            key={db}
                                             onClick={async () => {
-                                                try {
-                                                    const tbls = await window.electron.invoke('load-tables', selectedConnection, db);
-                                                    setSelectedDatabase(db);
-                                                    setTables(tbls);
-                                                    console.log('Tables for database', db, tbls); // Логируем таблицы
-                                                } catch (e) {
-                                                    alert(e.message || 'Ошибка при загрузке таблиц');
-                                                }
+                                                toggleDatabaseExpansion(db);
+                                                setSelectedDatabase(db);
+                                                loadSchemas(db); // Загружаем схемы при выборе базы
                                             }}
-                                            className="hover:bg-gray-500 p-1 rounded cursor-pointer"
+                                            className="hover:bg-gray-500 p-1 rounded cursor-pointer text-xs"
                                         >
                                             {db}
                                         </li>
-                                    ))}
-                                </ul>
-                            </div>
+
+                                        {/* Если база развернута, показываем схемы */}
+                                        {expandedDatabases[db] && schemas.length > 0 && (
+                                            <div>
+                                                <ul className="pl-4 space-y-1">
+                                                    {schemas.map((schema) => (
+                                                        <li
+                                                            key={`schema-${schema}`}
+                                                            onClick={() => {
+                                                                toggleSchemaExpansion(schema);
+                                                                loadTables(schema); // Загружаем таблицы при выборе схемы
+                                                            }}
+                                                            className="hover:bg-gray-400 p-1 rounded cursor-pointer text-xs"
+                                                        >
+                                                            {schema}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </>
                         )}
                     </ul>
                 </div>
@@ -119,7 +203,23 @@ function App() {
                         👈 Выберите соединение или создайте новое
                     </p>
 
-                    {selectedDatabase && tables.length > 0 && (
+                    {selectedDatabase && schemas.length > 0 && (
+                        <div className="mt-4">
+                            <div className="font-bold text-sm mb-1">Схемы</div>
+                            <ul className="space-y-1 text-xs">
+                                {schemas.map((schema) => (
+                                    <li
+                                        key={schema}
+                                        className="hover:bg-gray-500 p-1 rounded cursor-pointer"
+                                    >
+                                        {schema}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+
+                    {selectedSchema && tables.length > 0 && (
                         <div className="mt-4">
                             <div className="font-bold text-sm mb-1">Таблицы</div>
                             <ul className="space-y-1 text-xs">

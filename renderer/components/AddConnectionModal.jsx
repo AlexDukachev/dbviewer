@@ -25,8 +25,6 @@ export default function AddConnectionModal({ onClose, onSave }) {
         if (!form.port) newErrors.port = "Поле обязательно для заполнения";
         if (!form.name) newErrors.name = "Поле обязательно для заполнения";
         if (!form.username) newErrors.username = "Поле обязательно для заполнения";
-        if (!form.password) newErrors.password = "Поле обязательно для заполнения";
-        // if (!form.default_database) newErrors.default_database = "Поле обязательно для заполнения";
 
         if (Object.keys(newErrors).length > 0) {
             setErrors(newErrors);  // Отобразить ошибки
@@ -76,7 +74,7 @@ export default function AddConnectionModal({ onClose, onSave }) {
                                     {type === 'select' ? (
                                         <select
                                             name={name}
-                                            value={form[name]}
+                                            value={form[name]}  // Это гарантирует, что состояние будет обновляться
                                             onChange={handleChange}
                                             className={`w-full p-2 rounded bg-gray-700 text-white ${errors[name] ? 'border-2 border-red-500' : ''}`}
                                         >
@@ -87,7 +85,7 @@ export default function AddConnectionModal({ onClose, onSave }) {
                                         <input
                                             type={name === 'password' ? 'password' : 'text'}
                                             name={name}
-                                            value={form[name]}
+                                            value={form[name]}  // Это гарантирует, что состояние будет обновляться
                                             onChange={handleChange}
                                             className={`w-full p-2 rounded bg-gray-700 text-white ${errors[name] ? 'border-2 border-red-500' : ''}`}
                                         />
