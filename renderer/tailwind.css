@@ -6,3 +6,9 @@ body {
     @apply bg-dark text-white;
     background-color: #2B2B2B;
 }
+
+#left-sidecar {
+    height: 100dvh;
+    overflow-y: auto;
+    padding-right: 10px;
+}
